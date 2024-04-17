@@ -80,7 +80,7 @@ pub fn process_instruction(
             pre_sale(&mut ico_state, accounts)?;
         }
         3 => {
-            sale(&ico_state, accounts)?;
+            sale(&mut ico_state, accounts)?;
         }
         4 => {
             let account_to_whitelist_info = next_account_info(account_iter)?;
@@ -181,8 +181,6 @@ pub fn pre_sale(ico_state: &mut ICOAccount, accounts: &[AccountInfo]) -> Program
         return Err(ProgramError::InvalidAccountData);
     }
 
-    mint_tokens(ico_state, buyer_account_info, amount)?;
-
     for pre_sale_account in &mut ico_state.pre_sale_account {
         if &pre_sale_account.address == buyer_account_info {
             pre_sale_account.token_amount += amount;
@@ -216,6 +214,55 @@ pub fn pre_sale(ico_state: &mut ICOAccount, accounts: &[AccountInfo]) -> Program
     Ok(())
 }
 
-pub fn sale(ico_state: &ICOAccount, accounts: &[AccountInfo]) -> ProgramResult {
+pub fn sale(ico_state: &mut ICOAccount, accounts: &[AccountInfo]) -> ProgramResult {
+    let acount_iter: &mut std::slice::Iter<'_, AccountInfo<'_>> = &mut accounts.iter();
+    let buyer_account = next_account_info(acount_iter)?;
+    let buyer_account_info = buyer_account.key;
+    let current_time = Clock::get()?.unix_timestamp as u64;
+
+    if current_time < ico_state.sale_start_time
+        || ico_state.sale_start_time >= ico_state.sale_end_time
+    {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+
+    let amount_bytes = &buyer_account.data.borrow()[..8];
+    let amount = u64::from_le_bytes(amount_bytes.try_into().unwrap());
+    let total_cost = amount * ico_state.sale_price;
+
+    if total_cost != buyer_account.lamports() {
+        return Err(ProgramError::InvalidAccountData);
+    }
+
+    for sale_account in &mut ico_state.sale_account {
+        if &sale_account.address == buyer_account_info {
+            sale_account.token_amount += amount;
+        }
+    }
+
+    **buyer_account.try_borrow_mut_lamports()? -= total_cost;
+
+    if let Some((_, buyer_balance)) = ico_state
+        .balance
+        .iter_mut()
+        .find(|(account, _)| *account == *buyer_account.key)
+    {
+        *buyer_balance += amount;
+    } else {
+        return Err(ProgramError::InvalidAccountData);
+    }
+
+    if let Some((_, admin_balance)) = ico_state
+        .balance
+        .iter_mut()
+        .find(|(account, _)| *account == ico_state.admin)
+    {
+        *admin_balance -= amount;
+    } else {
+        return Err(ProgramError::InvalidAccountData);
+    }
+
+    ico_state.total_price_earned += total_cost;
+
     Ok(())
 }
