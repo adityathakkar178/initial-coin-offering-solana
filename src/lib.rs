@@ -68,7 +68,7 @@ pub fn process_instruction(
 
     match instruction_data[0] {
         0 => {
-            intialize_ico(program_id, &mut ico_state, account_iter);
+            intialize_ico(program_id, &mut ico_state, account_iter)?;
         }
         1 => {
             let recipient_account_info = next_account_info(account_iter)?;
